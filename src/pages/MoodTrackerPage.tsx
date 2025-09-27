@@ -63,8 +63,16 @@ function MoodTrackerPage() {
   
   const [viewMode, setViewMode] = useState<'entry' | 'analytics'>('entry');
   const [savedEntries, setSavedEntries] = useState<MoodEntry[]>([]);
-  const [mockAnalyticsData, setMockAnalyticsData] = useState<any[]>([]);
+  const [analyticsData, setAnalyticsData] = useState<any[]>([]);
   const [moodDistribution, setMoodDistribution] = useState<any[]>([]);
+  const [weeklyActivity, setWeeklyActivity] = useState<any[]>([]);
+  const [sleepMoodCorrelation, setSleepMoodCorrelation] = useState<any[]>([]);
+  const [averageStats, setAverageStats] = useState({
+    averageMood: 0,
+    averageSleep: 0,
+    averageStress: 0,
+    activeDays: 0
+  });
 
   const moodOptions = [
     { value: 'happy', emoji: '😊', label: 'Happy', color: '#10B981' },
@@ -88,22 +96,57 @@ function MoodTrackerPage() {
     // Load saved entries from localStorage
     const saved = localStorage.getItem('mindcare_mood_entries');
     if (saved) {
-      setSavedEntries(JSON.parse(saved));
-      updateAnalyticsData(JSON.parse(saved));
+      const entries = JSON.parse(saved);
+      setSavedEntries(entries);
+      updateAnalyticsData(entries);
     }
   }, []);
 
   const updateAnalyticsData = (entries: MoodEntry[]) => {
     if (entries.length > 0) {
-      // Generate analytics data from real entries
-      const last7Days = entries.slice(-7).map((entry: any) => ({
-        date: entry.date,
-        mood: entry.moodIntensity || 3,
+      // Get last 7 days of data for trends
+      const last7Days = entries.slice(-7).map((entry: any) => {
+        const stressValue = entry.stressLevel === 'Low' ? 2 : entry.stressLevel === 'Medium' ? 5 : 8;
+        const energyValue = entry.energyLevel === 'High' ? 8 : entry.energyLevel === 'Medium' ? 5 : 2;
+        
+        return {
+          date: entry.date,
+          mood: entry.moodIntensity || 3,
+          sleep: entry.sleepHours || 7,
+          stress: stressValue,
+          energy: energyValue
+        };
+      });
+      setAnalyticsData(last7Days);
+
+      // Calculate sleep vs mood correlation data
+      const correlationData = entries.map((entry: any) => ({
         sleep: entry.sleepHours || 7,
-        stress: entry.stressLevel === 'Low' ? 2 : entry.stressLevel === 'Medium' ? 5 : 8,
-        energy: entry.energyLevel === 'High' ? 8 : entry.energyLevel === 'Medium' ? 5 : 2
+        mood: entry.moodIntensity || 3,
+        date: entry.date
       }));
-      setMockAnalyticsData(last7Days);
+      setSleepMoodCorrelation(correlationData);
+
+      // Calculate weekly activity data
+      const weeklyData = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const dayEntries = entries.filter((entry: any) => entry.date === dateStr);
+        const hasEntry = dayEntries.length > 0;
+        const avgMood = hasEntry ? dayEntries.reduce((sum: number, entry: any) => sum + (entry.moodIntensity || 3), 0) / dayEntries.length : 0;
+        const avgSleep = hasEntry ? dayEntries.reduce((sum: number, entry: any) => sum + (entry.sleepHours || 7), 0) / dayEntries.length : 0;
+        
+        return {
+          day: dayName,
+          mood: Math.round(avgMood * 10) / 10,
+          sleep: Math.round(avgSleep * 10) / 10,
+          hasEntry: hasEntry ? 1 : 0
+        };
+      });
+      setWeeklyActivity(weeklyData);
 
       // Calculate mood distribution from real data
       const moodCounts = { excellent: 0, good: 0, neutral: 0, sad: 0, verySad: 0 };
@@ -124,11 +167,34 @@ function MoodTrackerPage() {
         { name: 'Sad', value: Math.round((moodCounts.sad / total) * 100), color: '#EF4444' },
         { name: 'Very Sad', value: Math.round((moodCounts.verySad / total) * 100), color: '#DC2626' }
       ]);
+
+      // Calculate average statistics
+      const totalMood = entries.reduce((sum: number, entry: any) => sum + (entry.moodIntensity || 3), 0);
+      const totalSleep = entries.reduce((sum: number, entry: any) => sum + (entry.sleepHours || 7), 0);
+      const totalStress = entries.reduce((sum: number, entry: any) => {
+        const stressValue = entry.stressLevel === 'Low' ? 2 : entry.stressLevel === 'Medium' ? 5 : 8;
+        return sum + stressValue;
+      }, 0);
+      
+      // Calculate active days (days with entries) in the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const recentEntries = entries.filter((entry: any) => new Date(entry.date) >= thirtyDaysAgo);
+      const activeDaysPercentage = Math.round((recentEntries.length / 30) * 100);
+      
+      setAverageStats({
+        averageMood: Math.round((totalMood / entries.length) * 10) / 10,
+        averageSleep: Math.round((totalSleep / entries.length) * 10) / 10,
+        averageStress: totalStress > 0 ? Math.round((totalStress / entries.length) * 10) / 10 : 5,
+        activeDays: activeDaysPercentage
+      });
     } else {
       // Default data
-      setMockAnalyticsData([
+      setAnalyticsData([
         { date: new Date().toISOString().split('T')[0], mood: 3, sleep: 7, stress: 4, energy: 6 }
       ]);
+      setSleepMoodCorrelation([]);
+      setWeeklyActivity([]);
       setMoodDistribution([
         { name: 'Excellent', value: 20, color: '#10B981' },
         { name: 'Good', value: 30, color: '#3B82F6' },
@@ -136,6 +202,12 @@ function MoodTrackerPage() {
         { name: 'Sad', value: 15, color: '#EF4444' },
         { name: 'Very Sad', value: 5, color: '#DC2626' }
       ]);
+      setAverageStats({
+        averageMood: 4.2,
+        averageSleep: 7.5,
+        averageStress: 3.0,
+        activeDays: 85
+      });
     }
   };
   const handleInputChange = (field: string, value: any) => {
@@ -315,730 +387,4 @@ function MoodTrackerPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                   {moodOptions.map((mood) => (
                     <motion.button
-                      key={mood.value}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleInputChange('primaryMood', mood.value)}
-                      className={`p-6 rounded-2xl border-2 transition-all duration-200 ${
-                        currentEntry.primaryMood === mood.value
-                          ? `border-[${mood.color}] bg-opacity-20`
-                          : theme === 'dark'
-                          ? 'border-gray-600 hover:border-gray-500'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                      style={{
-                        borderColor: currentEntry.primaryMood === mood.value ? mood.color : undefined,
-                        backgroundColor: currentEntry.primaryMood === mood.value ? `${mood.color}20` : undefined
-                      }}
-                    >
-                      <div className="text-4xl mb-2">{mood.emoji}</div>
-                      <div className={`text-sm font-medium ${
-                        theme === 'dark' ? 'text-white' : 'text-gray-800'
-                      }`}>
-                        {mood.label}
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-
-                {/* Mood Intensity Slider */}
-                {currentEntry.primaryMood && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="mt-8"
-                  >
-                    <label className={`block text-lg font-medium mb-4 ${
-                      theme === 'dark' ? 'text-white' : 'text-gray-800'
-                    }`}>
-                      Mood Intensity: {currentEntry.moodIntensity}/10
-                    </label>
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      value={currentEntry.moodIntensity}
-                      onChange={(e) => handleInputChange('moodIntensity', parseInt(e.target.value))}
-                      className="w-full h-3 rounded-lg appearance-none cursor-pointer"
-                      style={{
-                        background: `linear-gradient(to right, ${getSelectedMoodColor()} 0%, ${getSelectedMoodColor()} ${(currentEntry.moodIntensity || 5) * 10}%, #e5e7eb ${(currentEntry.moodIntensity || 5) * 10}%, #e5e7eb 100%)`
-                      }}
-                    />
-                    <div className="flex justify-between text-sm text-gray-500 mt-2">
-                      <span>Low</span>
-                      <span>High</span>
-                    </div>
-                  </motion.div>
-                )}
-              </motion.div>
-
-              {/* Detailed Tracking */}
-              <div className="grid lg:grid-cols-2 gap-8">
-                {/* Energy & Sleep */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h4 className={`text-xl font-semibold mb-6 flex items-center ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    <Zap className="w-5 h-5 mr-2 text-yellow-500" />
-                    Energy & Sleep
-                  </h4>
-
-                  {/* Energy Level */}
-                  <div className="mb-6">
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Energy Level
-                    </label>
-                    <div className="flex space-x-3">
-                      {['Low', 'Medium', 'High'].map((level) => (
-                        <button
-                          key={level}
-                          onClick={() => handleInputChange('energyLevel', level)}
-                          className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                            currentEntry.energyLevel === level
-                              ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
-                              : theme === 'dark'
-                              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Sleep Hours */}
-                  <div className="mb-6">
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Sleep Hours: {currentEntry.sleepHours}h
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="12"
-                      step="0.5"
-                      value={currentEntry.sleepHours}
-                      onChange={(e) => handleInputChange('sleepHours', parseFloat(e.target.value))}
-                      className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-purple-500"
-                    />
-                  </div>
-
-                  {/* Sleep Quality */}
-                  <div>
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Sleep Quality
-                    </label>
-                    <select
-                      value={currentEntry.sleepQuality}
-                      onChange={(e) => handleInputChange('sleepQuality', e.target.value)}
-                      className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                        theme === 'dark'
-                          ? 'bg-gray-700 border-gray-600 text-white'
-                          : 'bg-white border-gray-300 text-gray-900'
-                      }`}
-                    >
-                      <option value="Poor">Poor</option>
-                      <option value="Average">Average</option>
-                      <option value="Good">Good</option>
-                    </select>
-                  </div>
-                </motion.div>
-
-                {/* Stress & Activities */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h4 className={`text-xl font-semibold mb-6 flex items-center ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    <Target className="w-5 h-5 mr-2 text-red-500" />
-                    Stress & Activities
-                  </h4>
-
-                  {/* Stress Level */}
-                  <div className="mb-6">
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Stress Level
-                    </label>
-                    <div className="flex space-x-3">
-                      {['Low', 'Medium', 'High'].map((level) => (
-                        <button
-                          key={level}
-                          onClick={() => handleInputChange('stressLevel', level)}
-                          className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                            currentEntry.stressLevel === level
-                              ? level === 'Low' ? 'bg-green-500 text-white' :
-                                level === 'Medium' ? 'bg-yellow-500 text-white' :
-                                'bg-red-500 text-white'
-                              : theme === 'dark'
-                              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Activities */}
-                  <div>
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Activities (select all that apply)
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {activityOptions.map((activity) => (
-                        <button
-                          key={activity}
-                          onClick={() => handleActivityToggle(activity)}
-                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                            currentEntry.activities?.includes(activity)
-                              ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
-                              : theme === 'dark'
-                              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {activity}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              </div>
-
-              {/* Additional Tracking Fields */}
-              <div className="grid lg:grid-cols-3 gap-8">
-                {/* Nutrition & Physical Activity */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h4 className={`text-lg font-semibold mb-4 flex items-center ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    <Utensils className="w-5 h-5 mr-2 text-green-500" />
-                    Nutrition & Exercise
-                  </h4>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Nutrition
-                      </label>
-                      <div className="flex space-x-2">
-                        {['Balanced', 'Junk', 'Skipped'].map((type) => (
-                          <button
-                            key={type}
-                            onClick={() => handleInputChange('nutrition', type)}
-                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                              currentEntry.nutrition === type
-                                ? 'bg-green-500 text-white'
-                                : theme === 'dark'
-                                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                          >
-                            {type}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Physical Activity (minutes)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={currentEntry.physicalActivity?.minutes || 0}
-                        onChange={(e) => handleInputChange('physicalActivity', {
-                          ...currentEntry.physicalActivity,
-                          minutes: parseInt(e.target.value) || 0
-                        })}
-                        className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                          theme === 'dark'
-                            ? 'bg-gray-700 border-gray-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-900'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Screen Time & Medication */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h4 className={`text-lg font-semibold mb-4 flex items-center ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    <Smartphone className="w-5 h-5 mr-2 text-blue-500" />
-                    Digital & Health
-                  </h4>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Screen Time: {currentEntry.screenTime}h
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="16"
-                        step="0.5"
-                        value={currentEntry.screenTime}
-                        onChange={(e) => handleInputChange('screenTime', parseFloat(e.target.value))}
-                        className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-blue-400 to-purple-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Medication Taken
-                      </label>
-                      <button
-                        onClick={() => handleInputChange('medicationCompliance', {
-                          ...currentEntry.medicationCompliance,
-                          taken: !currentEntry.medicationCompliance?.taken
-                        })}
-                        className={`w-full px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                          currentEntry.medicationCompliance?.taken
-                            ? 'bg-green-500 text-white'
-                            : theme === 'dark'
-                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        {currentEntry.medicationCompliance?.taken ? 'Yes' : 'No'}
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Social & Weather */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h4 className={`text-lg font-semibold mb-4 flex items-center ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    <Users className="w-5 h-5 mr-2 text-purple-500" />
-                    Social & Environment
-                  </h4>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Social Interactions
-                      </label>
-                      <select
-                        value={currentEntry.socialInteractions}
-                        onChange={(e) => handleInputChange('socialInteractions', e.target.value)}
-                        className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                          theme === 'dark'
-                            ? 'bg-gray-700 border-gray-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-900'
-                        }`}
-                      >
-                        <option value="Met friends/family">Met friends/family</option>
-                        <option value="Isolated">Isolated</option>
-                        <option value="Therapy session">Therapy session</option>
-                        <option value="Online interaction">Online interaction</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Weather
-                      </label>
-                      <select
-                        value={currentEntry.weather}
-                        onChange={(e) => handleInputChange('weather', e.target.value)}
-                        className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                          theme === 'dark'
-                            ? 'bg-gray-700 border-gray-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-900'
-                        }`}
-                      >
-                        {weatherOptions.map(weather => (
-                          <option key={weather} value={weather}>{weather}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </motion.div>
-              </div>
-
-              {/* Reflection Section */}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-                className={`p-6 rounded-2xl shadow-lg ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                }`}
-              >
-                <h4 className={`text-xl font-semibold mb-6 flex items-center ${
-                  theme === 'dark' ? 'text-white' : 'text-gray-800'
-                }`}>
-                  <BookOpen className="w-5 h-5 mr-2 text-indigo-500" />
-                  Reflection & Notes
-                </h4>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      Gratitude (What are you grateful for today?)
-                    </label>
-                    <textarea
-                      value={currentEntry.gratitude}
-                      onChange={(e) => handleInputChange('gratitude', e.target.value)}
-                      rows={4}
-                      maxLength={200}
-                      className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none ${
-                        theme === 'dark'
-                          ? 'bg-gray-700 border-gray-600 text-white'
-                          : 'bg-white border-gray-300 text-gray-900'
-                      }`}
-                      placeholder="I'm grateful for..."
-                    />
-                    <div className={`text-xs mt-1 ${
-                      theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                    }`}>
-                      {(currentEntry.gratitude?.length || 0)}/200 characters
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-medium mb-3 ${
-                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      General Notes & Triggers
-                    </label>
-                    <textarea
-                      value={currentEntry.notes}
-                      onChange={(e) => handleInputChange('notes', e.target.value)}
-                      rows={4}
-                      className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none ${
-                        theme === 'dark'
-                          ? 'bg-gray-700 border-gray-600 text-white'
-                          : 'bg-white border-gray-300 text-gray-900'
-                      }`}
-                      placeholder="How was your day? Any triggers or important events?"
-                    />
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Save Button */}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-                className="text-center"
-              >
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleSaveEntry}
-                  className="px-8 py-4 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-2xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-3 mx-auto"
-                >
-                  <Save className="w-5 h-5" />
-                  <span>Save Today's Entry</span>
-                </motion.button>
-              </motion.div>
-            </motion.div>
-          ) : (
-            /* Analytics View */
-            <motion.div
-              key="analytics"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              className="space-y-8"
-            >
-              {/* Analytics Overview */}
-              <div className="grid md:grid-cols-4 gap-6">
-                {[
-                  { title: 'Average Mood', value: '4.2/5', icon: Heart, color: 'from-pink-500 to-rose-500' },
-                  { title: 'Sleep Quality', value: '7.5h', icon: Moon, color: 'from-blue-500 to-indigo-500' },
-                  { title: 'Stress Level', value: 'Low', icon: Target, color: 'from-green-500 to-teal-500' },
-                  { title: 'Active Days', value: '85%', icon: Activity, color: 'from-orange-500 to-red-500' }
-                ].map((stat, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className={`p-6 rounded-2xl shadow-lg ${
-                      theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className={`text-sm font-medium ${
-                          theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                        }`}>
-                          {stat.title}
-                        </h3>
-                        <p className={`text-2xl font-bold ${
-                          theme === 'dark' ? 'text-white' : 'text-gray-800'
-                        }`}>
-                          {stat.value}
-                        </p>
-                      </div>
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-r ${stat.color} flex items-center justify-center`}>
-                        <stat.icon className="w-6 h-6 text-white" />
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Charts */}
-              <div className="grid lg:grid-cols-2 gap-8">
-                {/* Mood Trend */}
-                <motion.div
-                  initial={{ opacity: 0, x: -30 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h3 className={`text-xl font-semibold mb-6 ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    Mood Trends (7 Days)
-                  </h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={mockAnalyticsData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#374151' : '#E5E7EB'} />
-                      <XAxis 
-                        dataKey="date" 
-                        stroke={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                        fontSize={12}
-                        tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      />
-                      <YAxis 
-                        stroke={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                        fontSize={12}
-                        domain={[1, 5]}
-                      />
-                      <Tooltip 
-                        contentStyle={{
-                          backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-                          border: 'none',
-                          borderRadius: '8px',
-                          color: theme === 'dark' ? '#FFFFFF' : '#000000'
-                        }}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="mood" 
-                        stroke="#8B5CF6" 
-                        strokeWidth={3}
-                        dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
-                        activeDot={{ r: 6, stroke: '#8B5CF6', strokeWidth: 2 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </motion.div>
-
-                {/* Mood Distribution */}
-                <motion.div
-                  initial={{ opacity: 0, x: 30 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className={`p-6 rounded-2xl shadow-lg ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  }`}
-                >
-                  <h3 className={`text-xl font-semibold mb-6 ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-800'
-                  }`}>
-                    Mood Distribution
-                  </h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <RechartsPieChart>
-                      <Pie
-                        data={moodDistribution}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={120}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {moodDistribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{
-                          backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-                          border: 'none',
-                          borderRadius: '8px',
-                          color: theme === 'dark' ? '#FFFFFF' : '#000000'
-                        }}
-                      />
-                      <Legend />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                </motion.div>
-              </div>
-
-              {/* Correlation Analysis */}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 }}
-                className={`p-6 rounded-2xl shadow-lg ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                }`}
-              >
-                <h3 className={`text-xl font-semibold mb-6 ${
-                  theme === 'dark' ? 'text-white' : 'text-gray-800'
-                }`}>
-                  Sleep vs Mood Correlation
-                </h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={mockAnalyticsData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#374151' : '#E5E7EB'} />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                      fontSize={12}
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    />
-                    <YAxis 
-                      stroke={theme === 'dark' ? '#9CA3AF' : '#6B7280'}
-                      fontSize={12}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: theme === 'dark' ? '#1F2937' : '#FFFFFF',
-                        border: 'none',
-                        borderRadius: '8px',
-                        color: theme === 'dark' ? '#FFFFFF' : '#000000'
-                      }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="sleep" 
-                      stackId="1"
-                      stroke="#3B82F6" 
-                      fill="#3B82F6"
-                      fillOpacity={0.3}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="mood" 
-                      stackId="2"
-                      stroke="#8B5CF6" 
-                      fill="#8B5CF6"
-                      fillOpacity={0.3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </motion.div>
-
-              {/* Insights */}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-                className={`p-6 rounded-2xl shadow-lg ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                }`}
-              >
-                <h3 className={`text-xl font-semibold mb-6 flex items-center ${
-                  theme === 'dark' ? 'text-white' : 'text-gray-800'
-                }`}>
-                  <Sparkles className="w-5 h-5 mr-2 text-yellow-500" />
-                  Personalized Insights
-                </h3>
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className={`p-4 rounded-xl ${
-                    theme === 'dark' ? 'bg-green-900/20 border border-green-800' : 'bg-green-50 border border-green-200'
-                  }`}>
-                    <h4 className="font-semibold text-green-600 mb-2">Positive Pattern</h4>
-                    <p className={`text-sm ${
-                      theme === 'dark' ? 'text-green-300' : 'text-green-700'
-                    }`}>
-                      Your mood tends to be higher on days when you get 8+ hours of sleep and engage in physical activity.
-                    </p>
-                  </div>
-                  <div className={`p-4 rounded-xl ${
-                    theme === 'dark' ? 'bg-blue-900/20 border border-blue-800' : 'bg-blue-50 border border-blue-200'
-                  }`}>
-                    <h4 className="font-semibold text-blue-600 mb-2">Recommendation</h4>
-                    <p className={`text-sm ${
-                      theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-                    }`}>
-                      Try to maintain a consistent sleep schedule and incorporate 30 minutes of exercise daily for better mood stability.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-export default MoodTrackerPage;
+                      key={moo
